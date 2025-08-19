@@ -1,0 +1,308 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+  <meta charset="UTF-8">
+  <title>Urlaubskosten Rechner</title>
+  <style>
+    body {
+      font-family: "Segoe UI", Arial, sans-serif;
+      margin: 0;
+      padding: 20px;
+      background: linear-gradient(135deg, #74ebd5, #ACB6E5);
+      color: #333;
+    }
+    h1 {
+      text-align: center;
+      color: #222;
+      margin-bottom: 20px;
+    }
+    .card {
+      background: white;
+      padding: 20px;
+      border-radius: 12px;
+      box-shadow: 0 4px 12px rgba(0,0,0,0.1);
+      margin-bottom: 20px;
+    }
+    input, select, button {
+      padding: 10px;
+      margin: 5px 0;
+      border-radius: 8px;
+      border: 1px solid #ccc;
+      font-size: 14px;
+    }
+    button {
+      background: #4CAF50;
+      color: white;
+      border: none;
+      cursor: pointer;
+      transition: 0.2s;
+    }
+    button:hover {
+      background: #45a049;
+    }
+    table {
+      border-collapse: collapse;
+      width: 100%;
+      margin-top: 15px;
+    }
+    th, td {
+      border: 1px solid #ddd;
+      padding: 10px;
+      text-align: center;
+    }
+    th {
+      background: #f4f4f4;
+    }
+    .delete-btn {
+      color: red;
+      cursor: pointer;
+      font-weight: bold;
+    }
+    .summary {
+      margin-top: 20px;
+      font-size: 15px;
+    }
+    .highlight {
+      font-weight: bold;
+      color: #2c3e50;
+    }
+    .owe {
+      background: #ffe4e1;
+      padding: 10px;
+      border-radius: 8px;
+      margin-top: 15px;
+    }
+  </style>
+</head>
+<body>
+  <h1>💸 Urlaubskosten-Tracker</h1>
+
+  <div class="card">
+    <h3>👥 Personen</h3>
+    <input type="text" id="newPerson" placeholder="Neue Person">
+    <button onclick="addPerson()">➕ Person hinzufügen</button>
+    <p><b>Aktuelle Personen:</b> <span id="personList"></span></p>
+  </div>
+
+  <div class="card">
+    <h3>📝 Neue Ausgabe</h3>
+    <input type="text" id="desc" placeholder="Beschreibung">
+    <input type="number" id="amount" placeholder="Betrag (€)" step="0.01">
+    <select id="who"></select>
+    <button onclick="addExpense()">➕ Hinzufügen</button>
+    <button onclick="clearAll()" style="background:#e74c3c">🗑️ Alles löschen</button>
+  </div>
+
+  <div class="card">
+    <h3>📊 Ausgaben</h3>
+    <table id="expenseTable">
+      <tr>
+        <th>Beschreibung</th>
+        <th>Betrag (€)</th>
+        <th>Bezahlt von</th>
+        <th>❌</th>
+      </tr>
+    </table>
+  </div>
+
+  <div class="card summary">
+    <h3>🔎 Übersicht</h3>
+    <p id="total">Gesamt: 0 €</p>
+    <div id="perPersonSummary"></div>
+    <div id="settlements" class="owe"></div>
+  </div>
+
+  <div class="card">
+    <h3>📂 Export</h3>
+    <button onclick="exportCSV()">📂 CSV Export</button>
+    <button onclick="exportPDF()">📄 PDF Export</button>
+  </div>
+
+  <!-- jsPDF + autotable -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.5.25/jspdf.plugin.autotable.min.js"></script>
+
+  <script>
+    let data = JSON.parse(localStorage.getItem("urlaubData")) || {
+      persons: ["Jo", "Sam"],
+      expenses: []
+    };
+
+    function saveData() {
+      localStorage.setItem("urlaubData", JSON.stringify(data));
+    }
+
+    function addPerson() {
+      let name = document.getElementById("newPerson").value.trim();
+      if (name && !data.persons.includes(name)) {
+        data.persons.push(name);
+        saveData();
+        updatePersons();
+      }
+      document.getElementById("newPerson").value = "";
+    }
+
+    function addExpense() {
+      let desc = document.getElementById("desc").value;
+      let amount = parseFloat(document.getElementById("amount").value);
+      let who = document.getElementById("who").value;
+
+      if (!desc || isNaN(amount) || amount <= 0 || !who) {
+        alert("Bitte alle Felder korrekt ausfüllen!");
+        return;
+      }
+
+      data.expenses.push({ description: desc, amount: amount, who: who });
+      saveData();
+
+      document.getElementById("desc").value = "";
+      document.getElementById("amount").value = "";
+
+      updateTable();
+      updateSummary();
+    }
+
+    function deleteExpense(index) {
+      data.expenses.splice(index, 1);
+      saveData();
+      updateTable();
+      updateSummary();
+    }
+
+    function clearAll() {
+      if (confirm("Willst du wirklich alles löschen?")) {
+        data.expenses = [];
+        saveData();
+        updateTable();
+        updateSummary();
+      }
+    }
+
+    function updatePersons() {
+      document.getElementById("personList").textContent = data.persons.join(", ");
+      let select = document.getElementById("who");
+      select.innerHTML = "";
+      data.persons.forEach(p => {
+        let opt = document.createElement("option");
+        opt.value = p;
+        opt.textContent = p;
+        select.appendChild(opt);
+      });
+    }
+
+    function updateTable() {
+      let table = document.getElementById("expenseTable");
+      table.innerHTML = "<tr><th>Beschreibung</th><th>Betrag (€)</th><th>Bezahlt von</th><th>❌</th></tr>";
+      data.expenses.forEach((exp, index) => {
+        let row = table.insertRow();
+        row.insertCell(0).textContent = exp.description;
+        row.insertCell(1).textContent = exp.amount.toFixed(2);
+        row.insertCell(2).textContent = exp.who;
+        let del = row.insertCell(3);
+        del.innerHTML = "<span class='delete-btn' onclick='deleteExpense(" + index + ")'>X</span>";
+      });
+    }
+
+    function updateSummary() {
+      let total = data.expenses.reduce((sum, exp) => sum + exp.amount, 0);
+      document.getElementById("total").textContent = "Gesamt: " + total.toFixed(2) + " €";
+
+      let perPerson = total / data.persons.length;
+      let spent = {};
+      data.persons.forEach(p => spent[p] = 0);
+      data.expenses.forEach(exp => spent[exp.who] += exp.amount);
+
+      let html = "<table><tr><th>Person</th><th>Gezahlt</th><th>Soll</th><th>Saldo</th></tr>";
+      data.persons.forEach(p => {
+        let saldo = spent[p] - perPerson;
+        html += `<tr>
+                  <td>${p}</td>
+                  <td>${spent[p].toFixed(2)} €</td>
+                  <td>${perPerson.toFixed(2)} €</td>
+                  <td>${saldo.toFixed(2)} €</td>
+                </tr>`;
+      });
+      html += "</table>";
+      document.getElementById("perPersonSummary").innerHTML = html;
+
+      // Settlement (Ausgleich)
+      let debtors = [], creditors = [];
+      data.persons.forEach(p => {
+        let saldo = spent[p] - perPerson;
+        if (saldo < 0) debtors.push({ name: p, amount: -saldo });
+        if (saldo > 0) creditors.push({ name: p, amount: saldo });
+      });
+
+      let settlementText = "<h4>💰 Ausgleich</h4>";
+      debtors.forEach(d => {
+        creditors.forEach(c => {
+          if (d.amount > 0 && c.amount > 0) {
+            let pay = Math.min(d.amount, c.amount);
+            settlementText += `<p>${d.name} ➝ ${c.name}: ${pay.toFixed(2)} €</p>`;
+            d.amount -= pay;
+            c.amount -= pay;
+          }
+        });
+      });
+      document.getElementById("settlements").innerHTML = settlementText;
+    }
+
+    // CSV Export
+    function exportCSV() {
+      let csv = "Beschreibung;Betrag (€);Bezahlt von\n";
+      data.expenses.forEach(exp => {
+        csv += `${exp.description};${exp.amount.toFixed(2)};${exp.who}\n`;
+      });
+      let total = data.expenses.reduce((sum, exp) => sum + exp.amount, 0);
+      csv += `\nGesamt;${total.toFixed(2)}\n`;
+
+      let blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
+      let url = URL.createObjectURL(blob);
+      let a = document.createElement("a");
+      a.href = url;
+      a.download = "urlaubskosten.csv";
+      a.click();
+    }
+
+    // PDF Export
+    async function exportPDF() {
+      const { jsPDF } = window.jspdf;
+      const doc = new jsPDF();
+      let today = new Date().toLocaleDateString("de-DE");
+
+      doc.setFontSize(16);
+      doc.text("💸 Urlaubskosten-Übersicht", 14, 20);
+      doc.setFontSize(10);
+      doc.text("Datum: " + today, 14, 28);
+
+      let tableData = data.expenses.map(exp => [exp.description, exp.amount.toFixed(2) + " €", exp.who]);
+      doc.autoTable({
+        head: [["Beschreibung", "Betrag (€)", "Bezahlt von"]],
+        body: tableData,
+        startY: 35
+      });
+
+      let total = data.expenses.reduce((sum, exp) => sum + exp.amount, 0);
+      let perPerson = total / data.persons.length;
+      let spent = {};
+      data.persons.forEach(p => spent[p] = 0);
+      data.expenses.forEach(exp => spent[exp.who] += exp.amount);
+
+      let summaryData = data.persons.map(p => [p, spent[p].toFixed(2) + " €", perPerson.toFixed(2) + " €", (spent[p] - perPerson).toFixed(2) + " €"]);
+      doc.autoTable({
+        head: [["Person", "Gezahlt", "Soll", "Saldo"]],
+        body: summaryData,
+        startY: doc.lastAutoTable.finalY + 15
+      });
+
+      doc.save("urlaubskosten.pdf");
+    }
+
+    // Init
+    updatePersons();
+    updateTable();
+    updateSummary();
+  </script>
+</body>
+</html>
+
